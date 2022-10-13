@@ -13,15 +13,18 @@
 #define delayTime 120
 #define campioniFreq 4
 #define prescaler 16
-#define Lmode_button 6
-#define Cmode_button 7
+#define Lmode_button 7
+#define Cmode_button 8
+#define LminFreq 64
 
 double C;
 double L;
 double Freq1 = 0;
 double Freq2 = 0;
+double Freq3 = 0;
 
 uint8_t state = 0;
+uint8_t mesuramentState = 0;
 boolean updateDisplay = true;
 boolean Detected;
 
@@ -30,7 +33,9 @@ String InductorMode    = "Induttanze:\0";
 String freq            = "\2x =/ \0";
 String NotFound        = "   Don't detected\0";
 String Lsymbol         = "Lx = \0";
-String Csymbol         = "Cx = \0";
+String Csymbol         = "Cx  = \0";
+String ESRsymbol       = "ESR = \0";
+String RSymbol         = "[\3]\0";
 
 volatile boolean complete;
 volatile unsigned long startTime;
@@ -68,6 +73,10 @@ void AddCapacitor() {
 
 void SetCapacitanzeMode() {
   SetCalibrateMode();
+}
+
+void SetESRmode() {
+
 }
 
 void SetInduttanzeMode()
@@ -175,26 +184,58 @@ void setup()
 
   SetInduttanzeMode();
   delay(5000);
-  ClearDisplay();
 }
 
 void loop() 
 {
+  
+  mesuramentState = ++mesuramentState % 2;
+  double NewFreq3;
+
+  switch(mesuramentState)
+  {
+    //leggo la freq
+    case 0: 
+      NewFreq3 = Calculate_LM311_Freq(); 
+      break;
+
+    //leggo i pulsanti
+    case 1:
+      if(ButtonL_mode.ButtonFunctionAvailable()) {
+        state = state++ % 2;
+        SetInduttanzeMode();
+        updateDisplay = true;
+
+      }
+      else if(ButtonC_mode.ButtonFunctionAvailable()) {
+        state = state++ % 2;
+        SetCapacitanzeMode();
+        updateDisplay = true;
+      }
+      break;
+  }
+  //leggo la freq dell' oscillatore
+  //1s
+
+  if(mesuramentState == 1)
+    continue;
+  
+  if(NewFreq3 != Freq3) {
+    updateDisplay = true;
+    Freq3 = NewFreq3;
+  } 
+
   if(updateDisplay) 
   {
-      
-  }
-  delay(750);
+    updateDisplay = !updateDisplay;
+    ClearDisplay();
 
-  if(UpdateDisplayValue.Test() || true)
-  {
+    //inductor misurement
     if(state == 0) 
     {
-      double Freq3 = Calculate_LM311_Freq();
-      DisplayLCD.Clear();
       DisplayLCD.WriteString(InductorMode,true);
       
-      if(Freq3 > 32) 
+      if(Freq3 > LminFreq) 
       {
         uint8_t range = 1;
 
@@ -224,9 +265,63 @@ void loop()
         Serial.println("don't detected");
       }
     }
-    else if(state == 1) {
+    else if(state == 1) 
+    {
+      DisplayLCD.WriteString(InductorMode,true);
       
-    }  
+      if(Freq3 > LminFreq) 
+      {
+        uint8_t range = 1;
+
+        double Freq3_ = Freq3 / pow(10, 3 * range);
+        double Freq1_ = Freq1 / pow(10, 3 * range);
+        double t1 = Freq1_ * Freq1_;
+        double t2 = Freq3_ * Freq3_;
+        double t3 = (t1/t2);
+        double Cx = (t3 - 1)* L;
+        double ESR;
+
+        if(Cx == -3.4028235E+38)
+          Cx = 0;
+
+        DisplayLCD.SetCursorPosition(0,1);
+        DisplayLCD.WriteString(freq,true);
+        DisplayLCD.WriteString(formattaUnita(Freq3,'Z'),true);
+        DisplayLCD.SetCursorPosition(0,2);
+        DisplayLCD.WriteString(Csymbol,true);
+        DisplayLCD.WriteString(formattaUnita(Lx,'H'),true);
+
+        Serial.print("Cx: ");
+        Serial.println(Cx);
+
+        DisplayLCD.SetCursorPosition(0,3);
+        DisplayLCD.WriteString(ESRsymbol,true);
+
+        if(Cx != 0) {
+          SetESRmode();
+          delay(100);
+          //ESR = calculateESR();
+          SetCapacitanzeMode();
+          String str = toString(ESR) + " ";
+          DisplayLCD.WriteString(Rsymbol,true);
+        }
+        else {
+          String str = "? "
+          DisplayLCD.WriteString(Rsymbol,true);
+        }
+      }
+      else {
+        DisplayLCD.SetCursorPosition(0,2);
+        DisplayLCD.WriteString(NotFound, true);
+        Serial.println("don't detected");
+      }
+    }
+  }
+  
+
+  if(UpdateDisplayValue.Test() || true)
+  {
+      
   }
 
   
